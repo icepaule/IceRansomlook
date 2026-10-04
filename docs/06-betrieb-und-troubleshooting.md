@@ -8,7 +8,9 @@
 sh scripts/backup.sh /volume2/docker/RansomLook /volume1/NetBackup/ransomlook
 ```
 
-> Stand der Doku: Das Skript ist **noch nicht im DSM-Aufgabenplaner eingetragen und nicht im Echtbetrieb getestet.** Empfehlung: DSM → Aufgabenplaner → täglich als root. Das Archiv enthält Secrets – nicht in öffentliche Ablagen legen.
+**Eingerichtet (04.10.2026):** Das Skript liegt auf dem Synology als `/volume1/scripts/ransomlook-backup.sh`. Es läuft täglich um 03:40 über `/etc/crontab` (gleiches Muster wie die anderen Skripte dort). Ziel ist `/volume1/NetBackup/ransomlook/` (anderes Volume als die Quelldaten auf `volume2`), Log `backup.log` im selben Ordner. Der erste Testlauf erzeugte ein Archiv von rund 133 MB.
+
+Wiederherstellung siehe Schritt 5B in [02-wiederherstellung.md](02-wiederherstellung.md). Das Archiv enthält Secrets – nicht in öffentliche Ablagen legen. Ein Restore-Test auf einer zweiten Maschine steht noch aus. Zu beachten: DSM kann `/etc/crontab` bei Updates zurücksetzen; im DSM-Aufgabenplaner ist der Job nicht hinterlegt.
 
 ## Updates
 
