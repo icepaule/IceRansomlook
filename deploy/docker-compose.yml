@@ -1,0 +1,74 @@
+# RansomLook @ Synology (Container Manager) - Ziel: /volume2/docker/RansomLook/docker-compose.yml
+version: '3'
+services:
+  redis:
+    image: redis:7
+    container_name: ransomlook-redis
+    volumes:
+      - ./cache:/ransomlook/cache
+    working_dir: /ransomlook/cache
+    command: ["redis-server", "/ransomlook/cache/cache.conf"]
+
+  ransomlook:
+    build: .
+    working_dir: /ransomlook
+    tty: true
+    restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    depends_on:
+      - redis
+    command:
+        - /bin/sh
+        - -c
+        - |
+            sleep 10
+            service tor start
+            poetry run start
+            sleep 30
+            # Dauerschleife statt Exit: frueher endete der Container nach parse
+            # -> restart-Loop + DSM-Mail "stopped unexpectedly"
+            while true; do
+              poetry run tools/import_public.py || echo "import_public failed"
+              poetry run tools/malpedia.py || echo "malpedia failed"
+              poetry run scrape || echo "scrape failed"
+              poetry run parse || echo "parse failed"
+              poetry run screen || echo "screen failed"
+              poetry run notes || echo "notes failed"
+              poetry run cryptocur || echo "cryptocur failed"
+              echo "cycle done $$(date)"
+              sleep 7200
+            done
+    volumes:
+        - ./config:/ransomlook/config
+        - ./data:/ransomlook/data
+        - ./source:/ransomlook/source
+        - ./cache:/ransomlook/cache
+        - ./source/screenshots:/ransomlook/source/screenshots
+        - ./tools:/ransomlook/tools:ro
+        - ./ransomlook/sharedutils.py:/ransomlook/ransomlook/sharedutils.py:ro
+    ports:
+        - 8083:8000
+    environment:
+      - RANSOMLOOK_HOME=/ransomlook
+    networks:
+      - default
+      - misp
+
+  ofelia:
+    image: mcuadros/ofelia:latest
+    depends_on:
+      - ransomlook
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ofelia.ini:/etc/ofelia/config.ini
+    restart: always
+
+
+networks:
+  default:
+    name: ransomlook_default
+  misp:
+    external: true
+    name: misp-docker_default

@@ -1,0 +1,277 @@
+diff --git a/Dockerfile b/Dockerfile
+index 609b413..300d5ef 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -8,7 +8,7 @@ RUN apt-get update
+ RUN apt-get -y upgrade
+ RUN apt-get -y install wget python3-dev git python3-venv python3-pip python-is-python3 tor
+ RUN apt-get -y install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libxkbcommon0 libxdamage1 libgbm1 libpango-1.0-0 libcairo2 libatspi2.0-0
+-RUN apt-get -y install libxcomposite1 libxfixes3 libxrandr2 libasound2 libwayland-client0
++RUN apt-get -y install libxcomposite1 libxfixes3 libxrandr2 libasound2 libwayland-client0 net-tools
+ RUN pip3 install poetry
+ 
+ WORKDIR ransomlook
+@@ -22,7 +22,20 @@ COPY website website/
+ COPY pyproject.toml .
+ COPY poetry.lock .
+ 
++COPY entrypoint.sh /entrypoint.sh
++RUN chmod +x /entrypoint.sh
++ENTRYPOINT ["/entrypoint.sh"]
++
+ RUN echo RANSOMLOOK_HOME="'`pwd`'" > .env
+ RUN poetry install
+ RUN poetry run playwright install
+ RUN poetry run tools/3rdparty.py
++RUN poetry run update --yes
++#RUN poetry run tools/import_from_instance.py
++#RUN poetry run tools/malpedia.py
++#RUN poetry run scrape
++#RUN poetry run parse
++#RUN poetry run tools/breach.py
++#RUN poetry run telegram
++
++CMD ["poetry", "run", "start"]  # oder der Hauptstartprozess
+diff --git a/cache/cache.conf b/cache/cache.conf
+index fe2702c..4be8288 100644
+--- a/cache/cache.conf
++++ b/cache/cache.conf
+@@ -152,7 +152,7 @@ tcp-backlog 511
+ # incoming connections. There is no default, so the server will not listen
+ # on a unix socket when not specified.
+ #
+-unixsocket cache.sock
++unixsocket /ransomlook/cache/cache.sock
+ unixsocketperm 700
+ 
+ # Close the connection after a client is idle for N seconds (0 to disable)
+@@ -303,7 +303,7 @@ tcp-keepalive 300
+ # By default the server does not run as a daemon. Use 'yes' if you need it.
+ # Note that the server will write a pid file in /var/run/valkey.pid when daemonized.
+ # When the server is supervised by upstart or systemd, this parameter has no impact.
+-daemonize yes
++daemonize no
+ 
+ # If you run the server from upstart or systemd, the server can interact with your
+ # supervision tree. Options:
+diff --git a/ransomlook/sharedutils.py b/ransomlook/sharedutils.py
+index a523845..3469a58 100644
+--- a/ransomlook/sharedutils.py
++++ b/ransomlook/sharedutils.py
+@@ -57,9 +57,15 @@ def statsgroup(group: bytes) -> None :
+     red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=2)
+     post_data = json.loads(red.get(group)) # type: ignore
+     # Count the number of victims per day
++    if not isinstance(post_data, list):
++        return
+     for post in post_data:
++        if not isinstance(post, dict) or not isinstance(post.get('discovered'), str):
++            continue
+         date = post['discovered'].split(' ')[0]
+         victim_counts[date] = victim_counts.get(date, 0) + 1 
++    if not victim_counts:
++        return
+ 
+     # Sort the victim counts by date
+     sorted_counts = sorted(victim_counts.items())
+@@ -109,7 +115,11 @@ def run_data_viz(days_filter: int) -> None:
+     timestamps = []
+     for key in red.keys():
+         posts = json.loads(red.get(key)) # type: ignore
++        if not isinstance(posts, list):
++            continue
+         for post in posts:
++            if not isinstance(post, dict) or not isinstance(post.get('discovered'), str):
++                continue
+             postdate = datetime.fromisoformat(post['discovered'])
+             if (now - postdate).days < days_filter:
+                 group_names.append(key.decode())
+@@ -181,7 +191,11 @@ def hostcount(db: int) -> int :
+     groups = red.keys()
+     host_count = 0
+     for entry in groups:
+-        group = json.loads(red.get(entry)) # type: ignore
++        raw = red.get(entry)
++        if not raw: continue
++        try: group = json.loads(raw)
++        except Exception: continue
++        if not isinstance(group, dict) or 'locations' not in group: continue
+         for host in group['locations']:
+             host_count += 1
+     return host_count
+@@ -191,7 +205,11 @@ def hostcountdls(db: int) -> int :
+     groups = red.keys()
+     host_count = 0
+     for entry in groups:
+-        group = json.loads(red.get(entry)) # type: ignore
++        raw = red.get(entry)
++        if not raw: continue
++        try: group = json.loads(raw)
++        except Exception: continue
++        if not isinstance(group, dict) or 'locations' not in group: continue
+         for host in group['locations']:
+             if (not 'chat' in host or host['chat'] is False) and (not 'fs' in host or host['fs'] is False) and (not 'admin' in host or host['admin'] is False):
+                 host_count += 1
+@@ -202,7 +220,11 @@ def hostcountfs(db: int) -> int :
+     groups = red.keys()
+     host_count = 0
+     for entry in groups:
+-        group = json.loads(red.get(entry)) # type: ignore
++        raw = red.get(entry)
++        if not raw: continue
++        try: group = json.loads(raw)
++        except Exception: continue
++        if not isinstance(group, dict) or 'locations' not in group: continue
+         for host in group['locations']:
+             if 'fs' in host and host['fs'] is True:
+                 host_count += 1
+@@ -213,7 +235,11 @@ def hostcountchat(db: int) -> int :
+     groups = red.keys()
+     host_count = 0
+     for entry in groups:
+-        group = json.loads(red.get(entry)) # type: ignore
++        raw = red.get(entry)
++        if not raw: continue
++        try: group = json.loads(raw)
++        except Exception: continue
++        if not isinstance(group, dict) or 'locations' not in group: continue
+         for host in group['locations']:
+             if 'chat' in host and host['chat'] is True:
+                 host_count += 1
+@@ -224,7 +250,11 @@ def hostcountadmin(db: int) -> int :
+     groups = red.keys()
+     host_count = 0
+     for entry in groups:
+-        group = json.loads(red.get(entry)) # type: ignore
++        raw = red.get(entry)
++        if not raw: continue
++        try: group = json.loads(raw)
++        except Exception: continue
++        if not isinstance(group, dict) or 'locations' not in group: continue
+         for host in group['locations']:
+             if 'admin' in host and host['admin'] is True:
+                 host_count += 1
+@@ -289,7 +319,11 @@ def onlinecount(db: int) -> int :
+     groups = red.keys()
+     online_count = 0
+     for entry in groups:
+-        group = json.loads(red.get(entry)) # type: ignore
++        raw = red.get(entry)
++        if not raw: continue
++        try: group = json.loads(raw)
++        except Exception: continue
++        if not isinstance(group, dict) or 'locations' not in group: continue
+         for host in group['locations']:
+             if host['available'] is True:
+                 online_count += 1
+diff --git a/tools/import_from_instance.py b/tools/import_from_instance.py
+index 0fa1d31..d4e51f6 100755
+--- a/tools/import_from_instance.py
++++ b/tools/import_from_instance.py
+@@ -1,43 +1,44 @@
+ #!/usr/bin/env python3
+ import json
++import os
+ import redis
+ from ransomlook.default import get_socket_path
+ import requests
+ 
++# ransomlook.io verlangt seit 2026 einen API-Key (sonst HTTP 401 + {"message": ...}).
++# Key optional per Env RANSOMLOOK_API_KEY. Fehlerantworten werden NICHT in Redis geschrieben.
+ remote_instance='https://www.ransomlook.io/api'
++api_key = os.environ.get('RANSOMLOOK_API_KEY', '').strip()
++headers = {'Authorization': api_key} if api_key else {}
+ 
+-print('Importing Groups')
+-groups = requests.get(remote_instance +'/export/0').json()
+-red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=0)
+-for key in groups:
+-    red.set(key, json.dumps(groups[key]))
++exports = [
++    ('Groups', 0),
++    ('Posts', 2),
++    ('Forums', 3),
++    ('Leaks', 4),
++    ('Telegram channels', 5),
++    ('Telegram message', 6),
++]
+ 
+-print('Importing Posts')
+-groups = requests.get(remote_instance +'/export/2').json()
+-red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=2)
+-for key in groups:
+-    red.set(key, json.dumps(groups[key]))
+-
+-print('Importing Forums')
+-groups = requests.get(remote_instance +'/export/3').json()
+-red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=3)
+-for key in groups:
+-    red.set(key, json.dumps(groups[key]))
+-
+-print('Importing Leaks')
+-groups = requests.get(remote_instance +'/export/4').json()
+-red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=4)
+-for key in groups:
+-    red.set(key, json.dumps(groups[key]))
+-
+-print('Importing Telegram channels')
+-groups = requests.get(remote_instance +'/export/5').json()
+-red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=5)
+-for key in groups:
+-    red.set(key, json.dumps(groups[key]))
+-
+-print('Importing Telegram message')
+-groups = requests.get(remote_instance +'/export/6').json()
+-red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=6)
+-for key in groups:
+-    red.set(key, json.dumps(groups[key]))
++for name, db in exports:
++    print('Importing ' + name)
++    try:
++        resp = requests.get(f'{remote_instance}/export/{db}', headers=headers, timeout=120)
++    except requests.RequestException as e:
++        print(f'  skipped: {e}')
++        continue
++    if resp.status_code != 200:
++        print(f'  skipped: HTTP {resp.status_code} {resp.text[:200]}')
++        continue
++    try:
++        groups = resp.json()
++    except ValueError:
++        print('  skipped: no JSON')
++        continue
++    if not isinstance(groups, dict) or set(groups) <= {'message', 'error'}:
++        print(f'  skipped: unexpected payload {str(groups)[:200]}')
++        continue
++    red = redis.Redis(unix_socket_path=get_socket_path('cache'), db=db)
++    for key in groups:
++        red.set(key, json.dumps(groups[key]))
++    print(f'  {len(groups)} entries')
+diff --git a/tools/import_telegram.py b/tools/import_telegram.py
+index e92e6e6..f2187c6 100755
+--- a/tools/import_telegram.py
++++ b/tools/import_telegram.py
+@@ -14,7 +14,10 @@ with open('data/telegram.txt', 'r') as file:
+     lines = file.readlines()
+     for line in lines:
+         data = {}
+-        d=line.split('|')
++        d=line.strip().split('|')
++        if len(d) < 4:
++            # erwartet: x|https://t.me/<name>|x|beschreibung (numerische Telethon-IDs sind nicht scrapebar)
++            continue
+         data['name']=d[1].strip('/').split('/')[-1]
+ 
+         data['meta']=d[3]
+diff --git a/tools/malpedia.py b/tools/malpedia.py
+index 434a147..9efa4eb 100755
+--- a/tools/malpedia.py
++++ b/tools/malpedia.py
+@@ -35,5 +35,6 @@ for family in families:
+                print(url)
+            group = json.loads(red.get(key)) # type: ignore
+            group['meta'] = families[family]['description']
+-           group['profile'].extend(families[family]['urls'])
++           profile = group.get('profile') or []
++           group['profile'] = profile + [u for u in families[family]['urls'] if u not in profile]
+            red.set(key,json.dumps(group))

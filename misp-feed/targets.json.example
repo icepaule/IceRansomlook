@@ -1,0 +1,3 @@
+[
+  {"name": "heim-misp", "url": "https://MISP-HOST:PORT", "key_file": "/opt/ransomlook-misp/heim-misp.key", "verify_tls": false}
+]

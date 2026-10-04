@@ -1,0 +1,1 @@
+17 * * * * root cd /opt/ransomlook-misp && /usr/bin/python3 ransomlook-misp.py >> /var/log/ransomlook-misp.log 2>&1
